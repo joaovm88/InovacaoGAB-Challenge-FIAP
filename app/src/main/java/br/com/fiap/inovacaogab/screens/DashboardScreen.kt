@@ -49,7 +49,7 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text("Visão Executiva Global", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = gabBlueDark) }
 
-            // CARD DIVISÕES DE NEGÓCIO (NOVO CLICÁVEL)
+            // Cards de Progressão
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showDivisoesDetails = true },
@@ -73,7 +73,7 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
                 }
             }
 
-            // CARD SUSTENTABILIDADE ESG
+            // Card de Indicadores ESG
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showEsgDetails = true },
@@ -97,7 +97,7 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
         }
     }
 
-    // --- DIALOGS VISUAIS ---
+    // Dialogs de Detalhes
 
     if (showDivisoesDetails) {
         AlertDialog(
@@ -164,7 +164,7 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
     }
 }
 
-// COMPONENTE VISUAL PARA OS DIALOGS
+// Componente visual para dialog
 @Composable
 fun ItemDetalheDash(icone: ImageVector, titulo: String, valor: String, corBase: Color) {
     Surface(color = Color(0xFFF8FAFC), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {

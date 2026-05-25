@@ -12,6 +12,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -37,7 +38,7 @@ fun LoginScreen(
     val autentica = FirebaseAuth.getInstance()
     val context = LocalContext.current
 
-    // Paleta de Cores Oficial - Grupo Águia Branca
+
     val gabBlueDark = Color(0xFF0A2540)
     val gabBlueLight = Color(0xFF0066CC)
     val gabBackground = Color(0xFFF8FAFC)
@@ -61,7 +62,7 @@ fun LoginScreen(
     ) {
         // Logotipo do Grupo Águia Branca
         Image(
-            painter = painterResource(id = R.drawable.logo_gab), // Certifique-se de que a imagem chama logo_gab.png na pasta drawable
+            painter = painterResource(id = R.drawable.schedule),
             contentDescription = "Logo Grupo Águia Branca",
             modifier = Modifier
                 .height(72.dp)
@@ -86,7 +87,7 @@ fun LoginScreen(
             onValueChange = { email = it },
             label = { Text(text = "E-mail corporativo") },
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("email_field"),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = gabBlueLight,
                 focusedLabelColor = gabBlueLight,
@@ -103,7 +104,7 @@ fun LoginScreen(
             onValueChange = { password = it },
             label = { Text(text = "Senha") },
             visualTransformation = PasswordVisualTransformation(),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().testTag("password_field"),
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = gabBlueLight,
                 focusedLabelColor = gabBlueLight,
@@ -124,7 +125,6 @@ fun LoginScreen(
                             estaCarregando = false
                             if (tarefa.isSuccessful) {
                                 navController.navigate("home") {
-                                    // Evita que o usuário volte para o login ao apertar o botão voltar
                                     popUpTo("login") { inclusive = true }
                                 }
                             } else {
@@ -141,13 +141,14 @@ fun LoginScreen(
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp), // Aumenta a área de toque
+                .height(50.dp)
+                .testTag("login_button"),
             shape = RoundedCornerShape(12.dp),
             colors = ButtonDefaults.buttonColors(containerColor = gabBlueLight)
         ) {
             if (estaCarregando) {
                 CircularProgressIndicator(
-                    modifier = Modifier.size(24.dp),
+                    modifier = Modifier.size(24.dp).testTag("loader"),
                     color = Color.White
                 )
             } else {

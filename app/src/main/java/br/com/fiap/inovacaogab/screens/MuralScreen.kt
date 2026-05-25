@@ -146,7 +146,7 @@ fun MuralScreen(
                             }
                         }
                         Spacer(modifier = Modifier.height(16.dp))
-                        // Resumo (Corta o texto em 2 linhas)
+
                         Text(
                             text = aviso.mensagem,
                             color = Color(0xFF475569),
@@ -161,7 +161,7 @@ fun MuralScreen(
         }
     }
 
-    // DIALOG DE LEITURA (VISUAL ATRAENTE)
+    // DIALOG DE LEITURA DO MURAL
     if (orientacaoSelecionada != null) {
         AlertDialog(
             onDismissRequest = { orientacaoSelecionada = null },

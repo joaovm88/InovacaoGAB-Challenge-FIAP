@@ -146,7 +146,7 @@ fun IdeiaDialog(
                 onClick = {
                     val novaIdeia = IdeiaInovacao(
                         id = ideia.id,
-                        autorId = ideia.autorId, // <--- ADICIONE ESTA LINHA! (É ela que salva a "identidade" do Operador)
+                        autorId = ideia.autorId,
                         tituloIdeia = tituloIdeia,
                         setor = setor,
                         descricao = descricao,

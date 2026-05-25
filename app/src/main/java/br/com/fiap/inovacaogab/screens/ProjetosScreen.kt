@@ -64,7 +64,7 @@ fun ProjetosScreen(
     val listaProjetos = remember { mutableStateListOf<ProjetoAndamento>() }
     val dbRef = Firebase.database.getReference("projetos_andamento")
 
-    // Escuta ativa do Firebase com Auto-Populate realista
+    // Escuta ativa do Firebase com Auto-Populate
     DisposableEffect(Unit) {
         val listener = object : ValueEventListener {
             override fun onDataChange(snapshot: DataSnapshot) {

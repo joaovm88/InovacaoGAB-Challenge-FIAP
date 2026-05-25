@@ -25,7 +25,7 @@ fun MainScreen(navController: NavController) {
     val auth = FirebaseAuth.getInstance()
     val userId = auth.currentUser?.uid
 
-    // LÓGICA DE NORMALIZAÇÃO ATUALIZADA
+
     LaunchedEffect(userId) {
         if (userId != null) {
             val database = FirebaseDatabase.getInstance("https://inovacaogab-b43c6-default-rtdb.firebaseio.com/")

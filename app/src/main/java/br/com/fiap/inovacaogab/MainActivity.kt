@@ -26,13 +26,12 @@ class MainActivity : ComponentActivity() {
                 ) {
                     val navController = rememberNavController()
 
-                    // Central de Navegação do App
+
                     NavHost(navController = navController, startDestination = "login") {
                         composable("login") { LoginScreen(navController = navController) }
                         composable("signup") { SignupScreen(navController = navController) }
 
-                        // O "pulo do gato": Quando o Login ou Signup chamarem a rota "home",
-                        // nós abrimos a MainScreen, que gerencia as abas sozinha!
+
                         composable("home") { MainScreen(navController = navController) }
                     }
                 }
