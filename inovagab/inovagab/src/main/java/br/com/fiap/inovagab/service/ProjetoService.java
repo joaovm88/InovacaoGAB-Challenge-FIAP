@@ -2,20 +2,24 @@ package br.com.fiap.inovagab.service;
 
 import br.com.fiap.inovagab.model.Projeto;
 import br.com.fiap.inovagab.repository.ProjetoRepository;
-import org.springframework.beans.factory.annotation.Autowired;
+import lombok.RequiredArgsConstructor;
+import org.bson.Document;
+import org.bson.types.Decimal128;
+import org.springframework.data.mongodb.core.MongoTemplate;
+import org.springframework.data.mongodb.core.aggregation.Aggregation;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class ProjetoService {
 
-    @Autowired
-    private ProjetoRepository projetoRepository;
+    private final ProjetoRepository projetoRepository;
+    private final MongoTemplate mongoTemplate;
 
     public Projeto criarProjeto(Projeto projeto) {
         if (projeto.getInvestimento() == null || projeto.getInvestimento().compareTo(BigDecimal.ZERO) <= 0) {
@@ -25,32 +29,29 @@ public class ProjetoService {
         return projetoRepository.save(projeto);
     }
 
+    // Consolida os indicadores executivos via Aggregation Pipeline do MongoDB
+    // ($group), sem carregar a coleção inteira de projetos na memória do backend.
     public Map<String, Object> consolidarResultadosGlobais() {
-        List<Projeto> projetos = projetoRepository.findAll();
+        Aggregation aggregation = Aggregation.newAggregation(
+                Aggregation.group()
+                        .count().as("totalProjetos")
+                        .sum("investimento").as("investimentoTotal")
+                        .sum("retornoFinanceiro").as("retornoTotal")
+                        .sum("reducaoCustos").as("reducaoCustosTotal")
+                        .sum("co2EvitadoToneladas").as("co2EvitadoToneladas")
+                        .sum("aguaPoupadaLitros").as("aguaPoupadaLitros")
+        );
 
-        BigDecimal investimentoTotal = BigDecimal.ZERO;
-        BigDecimal retornoTotal = BigDecimal.ZERO;
-        BigDecimal reducaoCustosTotal = BigDecimal.ZERO;
-        double co2Total = 0.0;
-        double aguaTotal = 0.0;
+        Document resultado = mongoTemplate
+                .aggregate(aggregation, "projetos", Document.class)
+                .getUniqueMappedResult();
 
-        for (Projeto p : projetos) {
-            if (p.getInvestimento() != null) {
-                investimentoTotal = investimentoTotal.add(p.getInvestimento());
-            }
-            if (p.getRetornoFinanceiro() != null) {
-                retornoTotal = retornoTotal.add(p.getRetornoFinanceiro());
-            }
-            if (p.getReducaoCustos() != null) {
-                reducaoCustosTotal = reducaoCustosTotal.add(p.getReducaoCustos());
-            }
-            if (p.getCo2EvitadoToneladas() != null) {
-                co2Total += p.getCo2EvitadoToneladas();
-            }
-            if (p.getAguaPoupadaLitros() != null) {
-                aguaTotal += p.getAguaPoupadaLitros();
-            }
-        }
+        int totalProjetos = extrairInt(resultado, "totalProjetos");
+        BigDecimal investimentoTotal = extrairBigDecimal(resultado, "investimentoTotal");
+        BigDecimal retornoTotal = extrairBigDecimal(resultado, "retornoTotal");
+        BigDecimal reducaoCustosTotal = extrairBigDecimal(resultado, "reducaoCustosTotal");
+        double co2Total = extrairDouble(resultado, "co2EvitadoToneladas");
+        double aguaTotal = extrairDouble(resultado, "aguaPoupadaLitros");
 
         BigDecimal lucroLiquido = retornoTotal.subtract(investimentoTotal);
         BigDecimal roiGlobal = BigDecimal.ZERO;
@@ -63,7 +64,7 @@ public class ProjetoService {
         }
 
         Map<String, Object> resumo = new HashMap<>();
-        resumo.put("totalProjetos", projetos.size());
+        resumo.put("totalProjetos", totalProjetos);
         resumo.put("investimentoTotal", investimentoTotal);
         resumo.put("retornoTotal", retornoTotal);
         resumo.put("reducaoCustosTotal", reducaoCustosTotal);
@@ -73,5 +74,38 @@ public class ProjetoService {
         resumo.put("aguaPoupadaLitros", aguaTotal);
 
         return resumo;
+    }
+
+    // A coleção pode estar vazia (nenhum projeto cadastrado ainda), caso em que o
+    // $group não produz nenhum documento de saída — por isso os extratores abaixo
+    // toleram um Document nulo ou um campo ausente, devolvendo o valor zero.
+    private int extrairInt(Document doc, String campo) {
+        if (doc == null) return 0;
+        Object valor = doc.get(campo);
+        return valor instanceof Number ? ((Number) valor).intValue() : 0;
+    }
+
+    private BigDecimal extrairBigDecimal(Document doc, String campo) {
+        if (doc == null) return BigDecimal.ZERO;
+        Object valor = doc.get(campo);
+        if (valor instanceof Decimal128) {
+            return ((Decimal128) valor).bigDecimalValue();
+        }
+        if (valor instanceof Number) {
+            return BigDecimal.valueOf(((Number) valor).doubleValue());
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private double extrairDouble(Document doc, String campo) {
+        if (doc == null) return 0.0;
+        Object valor = doc.get(campo);
+        if (valor instanceof Decimal128) {
+            return ((Decimal128) valor).doubleValue();
+        }
+        if (valor instanceof Number) {
+            return ((Number) valor).doubleValue();
+        }
+        return 0.0;
     }
 }

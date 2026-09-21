@@ -114,9 +114,20 @@ A autorização é feita via JWT (header `Authorization: Bearer <token>`), com r
 |---|---|---|
 | GET | `/api/dashboard/resultados` | `200` Resumo executivo: investimento total, retorno total, lucro líquido, ROI %, redução de custos, CO₂ evitado e água poupada |
 
+Os totais são calculados no próprio MongoDB via **Aggregation Pipeline** (`$group`
+com `$sum`/`$count` sobre a coleção `projetos`), em vez de carregar todos os
+documentos para a memória do backend — ver `ProjetoService.consolidarResultadosGlobais()`.
+
 ## Diferencial de IA
 
 O cadastro de ideias (`POST /api/ideias`) é enriquecido automaticamente pelo `GeminiService`, que envia título, setor, descrição e a estratégia vigente para a **Google Gemini API** e recebe de volta uma pontuação (0–100) e uma justificativa textual, auxiliando gestores a priorizar as melhores propostas. Caso a chave `GEMINI_API_KEY` não esteja configurada ou a API externa esteja indisponível, o serviço aplica uma pontuação padrão (fallback), sem bloquear o cadastro da ideia.
+
+## Índices do MongoDB
+
+- `usuarios.email` — índice único (`@Indexed(unique = true)`), usado no login.
+- `ideias.{status, autorId}` — índice composto (`@CompoundIndex`), acelera as
+  consultas mais frequentes da aplicação: fila de pendentes do Gestor
+  (`findByStatus`) e histórico de ideias do próprio operador (`findByAutorId`).
 
 ## Estrutura do projeto
 
