@@ -65,7 +65,7 @@ class ProjetoServiceTest {
             projetoService.criarProjeto(projetoInvalido);
         });
 
-        assertEquals("O investimento inicial deve ser superior a zero.", exception.getMessage());
+        assertEquals("O investimento inicial deve ser maior que zero.", exception.getMessage());
         verify(projetoRepository, never()).save(any(Projeto.class));
     }
 }

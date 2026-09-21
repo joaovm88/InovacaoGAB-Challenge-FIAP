@@ -16,15 +16,15 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavHostController
-import androidx.navigation.compose.rememberNavController
 import br.com.fiap.inovacaogab.R
-import br.com.fiap.inovacaogab.ui.theme.InovacaoGABTheme
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.FirebaseDatabase
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.LoginRequest
+import br.com.fiap.inovacaogab.data.RegistroRequest
+import br.com.fiap.inovacaogab.data.SessionManager
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -32,17 +32,19 @@ fun SignupScreen(
     modifier: Modifier = Modifier,
     navController: NavHostController
 ) {
+    var nome by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var estaCarregando by remember { mutableStateOf(false) }
 
     // Estados para o Menu Suspenso de Função (Role)
     var expandirMenu by remember { mutableStateOf(false) }
-    var funcaoSelecionada by remember { mutableStateOf("operador") }
     val funcoesDisponiveis = listOf("Operador(a)", "Gestor(a)", "Líder")
+    var funcaoSelecionada by remember { mutableStateOf(funcoesDisponiveis.first()) }
 
-    val autentica = FirebaseAuth.getInstance()
     val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+    val coroutineScope = rememberCoroutineScope()
 
     // Paleta de Cores
     val gabBlueDark = Color(0xFF0A2540)
@@ -66,6 +68,16 @@ fun SignupScreen(
         Spacer(modifier = Modifier.height(16.dp))
         Text("Criar Conta Corporativa", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = gabBlueDark)
         Spacer(modifier = Modifier.height(24.dp))
+
+        OutlinedTextField(
+            value = nome,
+            onValueChange = { nome = it },
+            label = { Text("Nome completo") },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp)
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
 
         OutlinedTextField(
             value = email,
@@ -95,7 +107,7 @@ fun SignupScreen(
             onExpandedChange = { expandirMenu = !expandirMenu }
         ) {
             OutlinedTextField(
-                value = funcaoSelecionada.replaceFirstChar { it.uppercase() },
+                value = funcaoSelecionada,
                 onValueChange = {},
                 readOnly = true,
                 label = { Text("Nível de Acesso") },
@@ -109,7 +121,7 @@ fun SignupScreen(
             ) {
                 funcoesDisponiveis.forEach { selecao ->
                     DropdownMenuItem(
-                        text = { Text(selecao.replaceFirstChar { it.uppercase() }) },
+                        text = { Text(selecao) },
                         onClick = {
                             funcaoSelecionada = selecao
                             expandirMenu = false
@@ -123,33 +135,40 @@ fun SignupScreen(
 
         Button(
             onClick = {
-                if (email.isNotEmpty() && password.length >= 6) {
+                if (nome.isNotEmpty() && email.isNotEmpty() && password.length >= 6) {
                     estaCarregando = true
-                    autentica.createUserWithEmailAndPassword(email.trim(), password)
-                        .addOnCompleteListener { tarefa ->
-                            if (tarefa.isSuccessful) {
-                                val userId = autentica.currentUser?.uid ?: ""
-                                val database = FirebaseDatabase.getInstance("https://inovacaogab-b43c6-default-rtdb.firebaseio.com/")
-                                val userRef = database.getReference("users").child(userId)
+                    coroutineScope.launch {
+                        try {
+                            val nivelAcesso = SessionManager.mapUiParaNivelAcesso(funcaoSelecionada)
+                            val respostaRegistro = ApiClient.service.registrar(
+                                RegistroRequest(nome.trim(), email.trim(), password, nivelAcesso)
+                            )
 
-                                // Salva a função exata que a pessoa escolheu na tela
-                                val newUser = mapOf(
-                                    "email" to email.trim(),
-                                    "role" to funcaoSelecionada
-                                )
-
-                                userRef.setValue(newUser).addOnCompleteListener {
-                                    estaCarregando = false
+                            if (respostaRegistro.isSuccessful) {
+                                // Efetua login automaticamente para obter o token JWT
+                                val respostaLogin = ApiClient.service.login(LoginRequest(email.trim(), password))
+                                if (respostaLogin.isSuccessful && respostaLogin.body() != null) {
+                                    val corpo = respostaLogin.body()!!
+                                    sessionManager.salvarSessao(corpo.token, corpo.nivelAcesso)
                                     navController.navigate("home") {
                                         popUpTo("signup") { inclusive = true }
                                         popUpTo("login") { inclusive = true }
                                     }
+                                } else {
+                                    Toast.makeText(context, "Cadastro criado! Faça login para continuar.", Toast.LENGTH_LONG).show()
+                                    navController.popBackStack()
                                 }
+                            } else if (respostaRegistro.code() == 409) {
+                                Toast.makeText(context, "Este e-mail já está cadastrado.", Toast.LENGTH_LONG).show()
                             } else {
-                                estaCarregando = false
-                                Toast.makeText(context, "Erro: ${tarefa.exception?.message}", Toast.LENGTH_LONG).show()
+                                Toast.makeText(context, "Não foi possível concluir o cadastro.", Toast.LENGTH_LONG).show()
                             }
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Não foi possível conectar ao servidor: ${e.message}", Toast.LENGTH_LONG).show()
+                        } finally {
+                            estaCarregando = false
                         }
+                    }
                 } else {
                     Toast.makeText(context, "Preencha corretamente.", Toast.LENGTH_SHORT).show()
                 }

@@ -1,5 +1,6 @@
 package br.com.fiap.inovacaogab.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -11,33 +12,21 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Campaign
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.google.firebase.Firebase
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.database
-import java.text.SimpleDateFormat
-import java.util.*
-
-data class OrientacaoEstrategica(
-    val id: String = "",
-    val titulo: String = "",
-    val mensagem: String = "",
-    val dataPublicacao: String = ""
-)
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.EstrategiaDto
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -50,42 +39,34 @@ fun MuralScreen(
     val gabBlueLight = Color(0xFF0066CC)
     val gabBackground = Color(0xFFF8FAFC)
     val gabSurface = Color(0xFFFFFFFF)
+    val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
 
     var mostrarDialogNovo by remember { mutableStateOf(false) }
+    var novaCategoria by remember { mutableStateOf("") }
     var novoTitulo by remember { mutableStateOf("") }
     var novaMensagem by remember { mutableStateOf("") }
 
-    // Estado para o Pop-up de Leitura do Mural
-    var orientacaoSelecionada by remember { mutableStateOf<OrientacaoEstrategica?>(null) }
+    var orientacaoSelecionada by remember { mutableStateOf<EstrategiaDto?>(null) }
+    val listaOrientacoes = remember { mutableStateListOf<EstrategiaDto>() }
+    var carregando by remember { mutableStateOf(true) }
 
-    val listaOrientacoes = remember { mutableStateListOf<OrientacaoEstrategica>() }
-    val dbRef = Firebase.database.getReference("orientacoes")
-
-    DisposableEffect(Unit) {
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                if (!snapshot.exists()) {
-                    val formatter = SimpleDateFormat("dd/MM/yyyy", Locale("pt", "BR"))
-                    val dataMock = formatter.format(Date())
-
-                    val mock1 = OrientacaoEstrategica(dbRef.push().key ?: "1", "ESG: Novas Metas para a Reserva", "O Grupo investiu R$ 300 mil na preservação da Mata Atlântica e avança com veículos elétricos na Vix Logística. Orientação aos Gestores: priorizem a aprovação de ideias que reduzam impacto ambiental nas operações diárias.", dataMock)
-                    val mock2 = OrientacaoEstrategica(dbRef.push().key ?: "2", "Programa de Inovação Aberta & UX Labs", "Abrimos 3 desafios estratégicos focados em eficiência de transporte, estoque e redução de turnover. Colaborador, utilize o espaço do UX Labs para modelar suas ideias. As melhores soluções concorrerão ao próximo 'Oscar da Inovação'!", dataMock)
-
-                    dbRef.child(mock1.id).setValue(mock1)
-                    dbRef.child(mock2.id).setValue(mock2)
-                } else {
-                    listaOrientacoes.clear()
-                    for (child in snapshot.children) {
-                        child.getValue(OrientacaoEstrategica::class.java)?.let { listaOrientacoes.add(it) }
-                    }
-                    listaOrientacoes.reverse()
-                }
+    suspend fun carregarEstrategias() {
+        carregando = true
+        try {
+            val resposta = ApiClient.service.listarEstrategiasAtivas()
+            if (resposta.isSuccessful) {
+                listaOrientacoes.clear()
+                resposta.body()?.let { listaOrientacoes.addAll(it.reversed()) }
             }
-            override fun onCancelled(error: DatabaseError) {}
+        } catch (e: Exception) {
+            Toast.makeText(context, "Falha ao carregar o mural: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            carregando = false
         }
-        dbRef.addValueEventListener(listener)
-        onDispose { dbRef.removeEventListener(listener) }
     }
+
+    LaunchedEffect(Unit) { carregarEstrategias() }
 
     Scaffold(
         containerColor = gabBackground,
@@ -107,6 +88,13 @@ fun MuralScreen(
             }
         }
     ) { paddingValues ->
+        if (carregando) {
+            Box(modifier = Modifier.padding(paddingValues).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = gabBlueLight)
+            }
+            return@Scaffold
+        }
+
         LazyColumn(
             modifier = modifier.padding(paddingValues).fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -120,11 +108,17 @@ fun MuralScreen(
                 }
             }
 
+            if (listaOrientacoes.isEmpty()) {
+                item {
+                    Text("Nenhuma orientação estratégica publicada ainda.", color = Color.Gray, modifier = Modifier.padding(16.dp))
+                }
+            }
+
             items(listaOrientacoes) { aviso ->
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { orientacaoSelecionada = aviso }, // CLICÁVEL PARA ABRIR LEITURA
+                        .clickable { orientacaoSelecionada = aviso },
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = gabSurface),
                     border = BorderStroke(1.dp, Color(0xFFE2E8F0))
@@ -136,11 +130,21 @@ fun MuralScreen(
                             }
                             Spacer(modifier = Modifier.width(16.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(aviso.titulo, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = gabBlueDark)
-                                Text(aviso.dataPublicacao, style = MaterialTheme.typography.labelSmall, color = Color.Gray)
+                                Text(aviso.campanha, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = gabBlueDark)
+                                Text("${aviso.categoria} · ${aviso.dataCriacao ?: ""}", style = MaterialTheme.typography.labelSmall, color = Color.Gray)
                             }
                             if (userRole == "Líder") {
-                                IconButton(onClick = { dbRef.child(aviso.id).removeValue() }) {
+                                IconButton(onClick = {
+                                    val id = aviso.id ?: return@IconButton
+                                    coroutineScope.launch {
+                                        try {
+                                            ApiClient.service.excluirEstrategia(id)
+                                            carregarEstrategias()
+                                        } catch (e: Exception) {
+                                            Toast.makeText(context, "Falha ao excluir: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                }) {
                                     Icon(Icons.Default.Delete, "Apagar", tint = Color.Red)
                                 }
                             }
@@ -148,7 +152,7 @@ fun MuralScreen(
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Text(
-                            text = aviso.mensagem,
+                            text = aviso.descricao,
                             color = Color(0xFF475569),
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
@@ -178,9 +182,9 @@ fun MuralScreen(
                 Column {
                     Divider(color = Color(0xFFE2E8F0))
                     Spacer(modifier = Modifier.height(16.dp))
-                    Text(orientacaoSelecionada!!.titulo, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = gabBlueDark)
+                    Text(orientacaoSelecionada!!.campanha, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, color = gabBlueDark)
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text("Publicado em: ${orientacaoSelecionada!!.dataPublicacao}", fontSize = 12.sp, color = Color.Gray)
+                    Text("${orientacaoSelecionada!!.categoria} · Publicado em: ${orientacaoSelecionada!!.dataCriacao ?: ""}", fontSize = 12.sp, color = Color.Gray)
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Surface(
@@ -189,7 +193,7 @@ fun MuralScreen(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = orientacaoSelecionada!!.mensagem,
+                            text = orientacaoSelecionada!!.descricao,
                             modifier = Modifier.padding(16.dp),
                             color = Color(0xFF334155),
                             lineHeight = 22.sp,
@@ -217,6 +221,8 @@ fun MuralScreen(
             title = { Text("Nova Orientação", fontWeight = FontWeight.Bold) },
             text = {
                 Column {
+                    OutlinedTextField(value = novaCategoria, onValueChange = { novaCategoria = it }, label = { Text("Categoria (ex: ESG, Inovação)") }, modifier = Modifier.fillMaxWidth())
+                    Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(value = novoTitulo, onValueChange = { novoTitulo = it }, label = { Text("Assunto") }, modifier = Modifier.fillMaxWidth())
                     Spacer(modifier = Modifier.height(8.dp))
                     OutlinedTextField(value = novaMensagem, onValueChange = { novaMensagem = it }, label = { Text("Mensagem") }, modifier = Modifier.fillMaxWidth(), minLines = 4)
@@ -225,10 +231,18 @@ fun MuralScreen(
             confirmButton = {
                 Button(onClick = {
                     if (novoTitulo.isNotEmpty()) {
-                        val key = dbRef.push().key ?: ""
-                        val formatter = SimpleDateFormat("dd/MM/yyyy HH:mm", Locale("pt", "BR"))
-                        dbRef.child(key).setValue(OrientacaoEstrategica(key, novoTitulo, novaMensagem, formatter.format(Date())))
-                        novoTitulo = ""; novaMensagem = ""; mostrarDialogNovo = false
+                        coroutineScope.launch {
+                            try {
+                                val categoriaFinal = novaCategoria.ifEmpty { "Geral" }
+                                ApiClient.service.criarEstrategia(
+                                    EstrategiaDto(categoria = categoriaFinal, campanha = novoTitulo, descricao = novaMensagem)
+                                )
+                                novaCategoria = ""; novoTitulo = ""; novaMensagem = ""; mostrarDialogNovo = false
+                                carregarEstrategias()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Falha ao publicar: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     }
                 }) { Text("Publicar") }
             },

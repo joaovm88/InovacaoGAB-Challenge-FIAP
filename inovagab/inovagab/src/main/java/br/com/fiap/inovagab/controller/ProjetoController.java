@@ -62,4 +62,32 @@ public class ProjetoController {
             return ResponseEntity.ok(atualizado);
         }).orElseGet(() -> ResponseEntity.notFound().build());
     }
+
+    // Edição completa dos dados cadastrais do projeto pelo Gestor
+    @PutMapping("/{id}")
+    public ResponseEntity<Projeto> atualizar(@PathVariable String id, @RequestBody Projeto dados) {
+        return projetoRepository.findById(id).map(projeto -> {
+            projeto.setNome(dados.getNome());
+            projeto.setDescricao(dados.getDescricao());
+            projeto.setDivisao(dados.getDivisao());
+            projeto.setEstrategiaId(dados.getEstrategiaId());
+            projeto.setIdeiaOrigemId(dados.getIdeiaOrigemId());
+            projeto.setDataInicio(dados.getDataInicio());
+            projeto.setPrazoFinal(dados.getPrazoFinal());
+            if (dados.getInvestimento() != null) {
+                projeto.setInvestimento(dados.getInvestimento());
+            }
+            return ResponseEntity.ok(projetoRepository.save(projeto));
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Remoção definitiva de um projeto pelo Gestor
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> excluir(@PathVariable String id) {
+        if (!projetoRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        projetoRepository.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
 }

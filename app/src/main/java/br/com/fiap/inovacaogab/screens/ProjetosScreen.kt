@@ -3,15 +3,14 @@ package br.com.fiap.inovacaogab.screens
 import android.widget.Toast
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Assignment
-import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,21 +23,30 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
-import com.google.firebase.Firebase
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.database
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.ProjetoDto
+import kotlinx.coroutines.launch
+import java.util.Locale
 
-// Modelo do Projeto alinhado às verticais do GAB
-data class ProjetoAndamento(
-    val id: String = "",
-    val titulo: String = "",
-    val setor: String = "",
-    val fase: String = "Planejamento",
-    val progresso: Float = 0.1f,
-    val economiaAtual: String = "R$ 0,00"
+// Rótulo exibido -> constante do enum FaseProjeto no backend
+private val fasesProjeto = listOf(
+    "Planejamento" to "PLANEJAMENTO",
+    "Piloto" to "PILOTO",
+    "Em Andamento" to "EM_ANDAMENTO",
+    "Concluído" to "CONCLUIDO"
 )
+
+private fun progressoPorFase(etapa: String?): Float = when (etapa) {
+    "PLANEJAMENTO" -> 0.15f
+    "PILOTO" -> 0.45f
+    "EM_ANDAMENTO" -> 0.75f
+    "CONCLUIDO" -> 1.0f
+    else -> 0.1f
+}
+
+private fun rotuloFase(etapa: String?): String = fasesProjeto.firstOrNull { it.second == etapa }?.first ?: (etapa ?: "Planejamento")
+
+private fun formatarMoeda(valor: Double?): String = String.format(Locale("pt", "BR"), "R$ %,.2f", valor ?: 0.0)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,47 +56,43 @@ fun ProjetosScreen(
     userRole: String = "Operador(a)"
 ) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val gabBlueDark = Color(0xFF0A2540)
     val gabBlueLight = Color(0xFF0066CC)
     val greenSuccess = Color(0xFF10B981)
 
+    val divisoesOpcoes = listOf("Passageiros", "Logística", "Comércio", "Corporativo")
+
     var mostrarDialogAtualizar by remember { mutableStateOf(false) }
-    var projetoSelecionado by remember { mutableStateOf<ProjetoAndamento?>(null) }
+    var projetoSelecionado by remember { mutableStateOf<ProjetoDto?>(null) }
+    var faseSelecionada by remember { mutableStateOf(fasesProjeto.first()) }
+    var novoRetorno by remember { mutableStateOf("") }
 
-    // Estados para o formulário de atualização do Gestor
-    var faseSelecionada by remember { mutableStateOf("Planejamento") }
-    var novaEconomia by remember { mutableStateOf("") }
-    var progressoSlider by remember { mutableStateOf(0.1f) }
-    val fasesOpcoes = listOf("Planejamento", "Piloto/Testes", "Homologação", "Implementado")
+    var mostrarDialogNovo by remember { mutableStateOf(false) }
+    var novoNome by remember { mutableStateOf("") }
+    var novaDescricao by remember { mutableStateOf("") }
+    var novaDivisao by remember { mutableStateOf(divisoesOpcoes.first()) }
+    var novoInvestimento by remember { mutableStateOf("") }
 
-    val listaProjetos = remember { mutableStateListOf<ProjetoAndamento>() }
-    val dbRef = Firebase.database.getReference("projetos_andamento")
+    val listaProjetos = remember { mutableStateListOf<ProjetoDto>() }
+    var carregando by remember { mutableStateOf(true) }
 
-    // Escuta ativa do Firebase com Auto-Populate
-    DisposableEffect(Unit) {
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                if (!snapshot.exists()) {
-                    // Se o banco estiver zerado, cria projetos baseados em dores reais do GAB
-                    val p1 = ProjetoAndamento(dbRef.push().key ?: "p1", "Telemetria Inteligente Frota VIX", "Logística", "Piloto/Testes", 0.45f, "R$ 28.000,00")
-                    val p2 = ProjetoAndamento(dbRef.push().key ?: "p2", "Otimização de Escalas Viação Águia Branca", "Passageiros", "Planejamento", 0.15f, "R$ 0,00")
-                    val p3 = ProjetoAndamento(dbRef.push().key ?: "p3", "Totens Autoatendimento Vitória Motors", "Comércio", "Homologação", 0.80f, "R$ 15.400,00")
-
-                    dbRef.child(p1.id).setValue(p1)
-                    dbRef.child(p2.id).setValue(p2)
-                    dbRef.child(p3.id).setValue(p3)
-                } else {
-                    listaProjetos.clear()
-                    for (child in snapshot.children) {
-                        child.getValue(ProjetoAndamento::class.java)?.let { listaProjetos.add(it) }
-                    }
-                }
+    suspend fun carregarProjetos() {
+        carregando = true
+        try {
+            val resposta = ApiClient.service.listarProjetos()
+            if (resposta.isSuccessful) {
+                listaProjetos.clear()
+                resposta.body()?.let { listaProjetos.addAll(it) }
             }
-            override fun onCancelled(error: DatabaseError) {}
+        } catch (e: Exception) {
+            Toast.makeText(context, "Falha ao carregar projetos: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            carregando = false
         }
-        dbRef.addValueEventListener(listener)
-        onDispose { dbRef.removeEventListener(listener) }
     }
+
+    LaunchedEffect(Unit) { carregarProjetos() }
 
     Scaffold(
         containerColor = Color(0xFFF8FAFC),
@@ -97,8 +101,29 @@ fun ProjetosScreen(
                 title = { Text("Projetos do Ecossistema", color = Color.White, fontWeight = FontWeight.Bold) },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = gabBlueDark)
             )
+        },
+        floatingActionButton = {
+            if (userRole == "Gestor(a)") {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        novoNome = ""; novaDescricao = ""; novaDivisao = divisoesOpcoes.first(); novoInvestimento = ""
+                        mostrarDialogNovo = true
+                    },
+                    containerColor = gabBlueLight,
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Default.Add, null) },
+                    text = { Text("Novo Projeto", fontWeight = FontWeight.Bold) }
+                )
+            }
         }
     ) { paddingValues ->
+        if (carregando) {
+            Box(modifier = Modifier.padding(paddingValues).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = gabBlueLight)
+            }
+            return@Scaffold
+        }
+
         LazyColumn(
             modifier = modifier.padding(paddingValues).fillMaxSize(),
             contentPadding = PaddingValues(16.dp),
@@ -109,6 +134,12 @@ fun ProjetosScreen(
                     Text("Projetos em Execução", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.ExtraBold, color = gabBlueDark)
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("Acompanhe o andamento das ideias que saíram do papel e viraram soluções.", color = Color.Gray)
+                }
+            }
+
+            if (listaProjetos.isEmpty()) {
+                item {
+                    Text("Nenhum projeto cadastrado ainda.", color = Color.Gray, modifier = Modifier.padding(16.dp))
                 }
             }
 
@@ -126,17 +157,15 @@ fun ProjetosScreen(
                             }
                             Spacer(modifier = Modifier.width(12.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text(projeto.titulo, fontWeight = FontWeight.Bold, color = gabBlueDark, fontSize = 16.sp)
-                                Text("Vertical: ${projeto.setor}", color = Color.Gray, fontSize = 12.sp)
+                                Text(projeto.nome, fontWeight = FontWeight.Bold, color = gabBlueDark, fontSize = 16.sp)
+                                Text("Vertical: ${projeto.divisao}", color = Color.Gray, fontSize = 12.sp)
                             }
 
-                            // Gestor(a) pode clicar para editar e atualizar resultados
                             if (userRole == "Gestor(a)") {
                                 IconButton(onClick = {
                                     projetoSelecionado = projeto
-                                    faseSelecionada = projeto.fase
-                                    novaEconomia = projeto.economiaAtual
-                                    progressoSlider = projeto.progresso
+                                    faseSelecionada = fasesProjeto.firstOrNull { it.second == projeto.etapa } ?: fasesProjeto.first()
+                                    novoRetorno = projeto.retornoFinanceiro?.toString() ?: ""
                                     mostrarDialogAtualizar = true
                                 }) {
                                     Icon(Icons.Default.Edit, "Atualizar", tint = gabBlueLight)
@@ -146,16 +175,16 @@ fun ProjetosScreen(
 
                         Spacer(modifier = Modifier.height(16.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text("Fase Atual: ${projeto.fase}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = gabBlueDark)
-                            Text("Economia: ${projeto.economiaAtual}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = greenSuccess)
+                            Text("Fase Atual: ${rotuloFase(projeto.etapa)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = gabBlueDark)
+                            Text("Retorno: ${formatarMoeda(projeto.retornoFinanceiro)}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = greenSuccess)
                         }
 
                         Spacer(modifier = Modifier.height(8.dp))
-                        // Progresso Linear Dinâmico
+                        val progresso = progressoPorFase(projeto.etapa)
                         LinearProgressIndicator(
-                            progress = projeto.progresso,
+                            progress = progresso,
                             modifier = Modifier.fillMaxWidth().height(8.dp),
-                            color = if (projeto.progresso >= 0.8f) greenSuccess else gabBlueLight,
+                            color = if (progresso >= 0.8f) greenSuccess else gabBlueLight,
                             trackColor = Color(0xFFF1F5F9),
                             strokeCap = StrokeCap.Round
                         )
@@ -176,20 +205,18 @@ fun ProjetosScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("Gerencie a evolução do projeto e registre o ganho financeiro obtido.", fontSize = 14.sp, color = Color.Gray)
 
-                    // Input de Economia
                     OutlinedTextField(
-                        value = novaEconomia,
-                        onValueChange = { novaEconomia = it },
-                        label = { Text("Ganhos/Economia Atual (Ex: R$ 5.000)") },
+                        value = novoRetorno,
+                        onValueChange = { novoRetorno = it },
+                        label = { Text("Retorno financeiro (R$)") },
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     )
 
-                    // Seletor de Fase
                     var expandirFases by remember { mutableStateOf(false) }
                     ExposedDropdownMenuBox(expanded = expandirFases, onExpandedChange = { expandirFases = !expandirFases }) {
                         OutlinedTextField(
-                            value = faseSelecionada,
+                            value = faseSelecionada.first,
                             onValueChange = {},
                             readOnly = true,
                             label = { Text("Fase de Desenvolvimento") },
@@ -198,16 +225,9 @@ fun ProjetosScreen(
                             shape = RoundedCornerShape(12.dp)
                         )
                         ExposedDropdownMenu(expanded = expandirFases, onDismissRequest = { expandirFases = false }) {
-                            fasesOpcoes.forEach { fase ->
-                                DropdownMenuItem(text = { Text(fase) }, onClick = {
-                                    faseSelecionada = fase
-                                    // Ajusta o progresso da barra automaticamente com base na fase escolhida
-                                    progressoSlider = when(fase) {
-                                        "Planejamento" -> 0.15f
-                                        "Piloto/Testes" -> 0.45f
-                                        "Homologação" -> 0.75f
-                                        else -> 1.0f
-                                    }
+                            fasesProjeto.forEach { opcao ->
+                                DropdownMenuItem(text = { Text(opcao.first) }, onClick = {
+                                    faseSelecionada = opcao
                                     expandirFases = false
                                 })
                             }
@@ -218,14 +238,24 @@ fun ProjetosScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val projetoAtualizado = projetoSelecionado!!.copy(
-                            fase = faseSelecionada,
-                            economiaAtual = novaEconomia,
-                            progresso = progressoSlider
-                        )
-                        dbRef.child(projetoAtualizado.id).setValue(projetoAtualizado)
-                        Toast.makeText(context, "Dados salvos com sucesso!", Toast.LENGTH_SHORT).show()
-                        mostrarDialogAtualizar = false
+                        val id = projetoSelecionado?.id ?: return@Button
+                        val retornoValor = novoRetorno.replace(",", ".").toDoubleOrNull()
+                        val faseEnum = faseSelecionada.second
+                        coroutineScope.launch {
+                            try {
+                                ApiClient.service.atualizarProgressoProjeto(
+                                    id = id,
+                                    fase = faseEnum,
+                                    retornoFinanceiro = retornoValor,
+                                    finalizado = faseEnum == "CONCLUIDO"
+                                )
+                                Toast.makeText(context, "Dados salvos com sucesso!", Toast.LENGTH_SHORT).show()
+                                mostrarDialogAtualizar = false
+                                carregarProjetos()
+                            } catch (e: Exception) {
+                                Toast.makeText(context, "Falha ao salvar: ${e.message}", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = gabBlueDark)
                 ) { Text("Salvar Alterações", color = Color.White) }
@@ -233,6 +263,73 @@ fun ProjetosScreen(
             dismissButton = {
                 TextButton(onClick = { mostrarDialogAtualizar = false }) { Text("Cancelar", color = Color.Gray) }
             }
+        )
+    }
+
+    // POP-UP DE CRIAÇÃO DE NOVO PROJETO (GESTOR)
+    if (mostrarDialogNovo) {
+        AlertDialog(
+            onDismissRequest = { mostrarDialogNovo = false },
+            shape = RoundedCornerShape(20.dp),
+            containerColor = Color.White,
+            title = { Text("Novo Projeto", fontWeight = FontWeight.Bold, color = gabBlueDark) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    OutlinedTextField(value = novoNome, onValueChange = { novoNome = it }, label = { Text("Nome do projeto") }, modifier = Modifier.fillMaxWidth())
+                    OutlinedTextField(value = novaDescricao, onValueChange = { novaDescricao = it }, label = { Text("Descrição") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+
+                    var expandirDivisoes by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(expanded = expandirDivisoes, onExpandedChange = { expandirDivisoes = !expandirDivisoes }) {
+                        OutlinedTextField(
+                            value = novaDivisao,
+                            onValueChange = {},
+                            readOnly = true,
+                            label = { Text("Vertical/Divisão") },
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandirDivisoes) },
+                            modifier = Modifier.menuAnchor().fillMaxWidth()
+                        )
+                        ExposedDropdownMenu(expanded = expandirDivisoes, onDismissRequest = { expandirDivisoes = false }) {
+                            divisoesOpcoes.forEach { opcao ->
+                                DropdownMenuItem(text = { Text(opcao) }, onClick = { novaDivisao = opcao; expandirDivisoes = false })
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = novoInvestimento,
+                        onValueChange = { novoInvestimento = it },
+                        label = { Text("Investimento inicial (R$)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(onClick = {
+                    val investimentoValor = novoInvestimento.replace(",", ".").toDoubleOrNull()
+                    if (novoNome.isBlank() || investimentoValor == null || investimentoValor <= 0.0) {
+                        Toast.makeText(context, "Informe nome e um investimento inicial válido.", Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    coroutineScope.launch {
+                        try {
+                            ApiClient.service.criarProjeto(
+                                ProjetoDto(
+                                    nome = novoNome,
+                                    descricao = novaDescricao,
+                                    divisao = novaDivisao,
+                                    etapa = "PLANEJAMENTO",
+                                    investimento = investimentoValor
+                                )
+                            )
+                            mostrarDialogNovo = false
+                            carregarProjetos()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Falha ao criar projeto: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                }, colors = ButtonDefaults.buttonColors(containerColor = gabBlueDark)) { Text("Criar Projeto", color = Color.White) }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialogNovo = false }) { Text("Cancelar", color = Color.Gray) } }
         )
     }
 }

@@ -23,8 +23,11 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
 import br.com.fiap.inovacaogab.R
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.LoginRequest
+import br.com.fiap.inovacaogab.data.SessionManager
 import br.com.fiap.inovacaogab.ui.theme.InovacaoGABTheme
-import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoginScreen(
@@ -35,9 +38,9 @@ fun LoginScreen(
     var password by remember { mutableStateOf("") }
     var estaCarregando by remember { mutableStateOf(false) }
 
-    val autentica = FirebaseAuth.getInstance()
     val context = LocalContext.current
-
+    val sessionManager = remember { SessionManager(context) }
+    val coroutineScope = rememberCoroutineScope()
 
     val gabBlueDark = Color(0xFF0A2540)
     val gabBlueLight = Color(0xFF0066CC)
@@ -45,7 +48,7 @@ fun LoginScreen(
 
     // Redireciona de forma segura se o usuário já estiver logado
     LaunchedEffect(Unit) {
-        if (autentica.currentUser != null) {
+        if (sessionManager.estaLogado()) {
             navController.navigate("home") {
                 popUpTo("login") { inclusive = true }
             }
@@ -120,10 +123,12 @@ fun LoginScreen(
             onClick = {
                 if (email.isNotEmpty() && password.isNotEmpty()) {
                     estaCarregando = true
-                    autentica.signInWithEmailAndPassword(email.trim(), password)
-                        .addOnCompleteListener { tarefa ->
-                            estaCarregando = false
-                            if (tarefa.isSuccessful) {
+                    coroutineScope.launch {
+                        try {
+                            val resposta = ApiClient.service.login(LoginRequest(email.trim(), password))
+                            if (resposta.isSuccessful && resposta.body() != null) {
+                                val corpo = resposta.body()!!
+                                sessionManager.salvarSessao(corpo.token, corpo.nivelAcesso)
                                 navController.navigate("home") {
                                     popUpTo("login") { inclusive = true }
                                 }
@@ -134,7 +139,16 @@ fun LoginScreen(
                                     Toast.LENGTH_SHORT
                                 ).show()
                             }
+                        } catch (e: Exception) {
+                            Toast.makeText(
+                                context,
+                                "Não foi possível conectar ao servidor: ${e.message}",
+                                Toast.LENGTH_LONG
+                            ).show()
+                        } finally {
+                            estaCarregando = false
                         }
+                    }
                 } else {
                     Toast.makeText(context, "Preencha todos os campos.", Toast.LENGTH_SHORT).show()
                 }
