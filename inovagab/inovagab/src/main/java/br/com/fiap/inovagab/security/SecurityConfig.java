@@ -32,7 +32,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/auth/registro").permitAll()
 
                         // Regras de acesso do InovaGAB
+                        // Ideias: qualquer perfil pode cadastrar; edição/exclusão são liberadas aqui
+                        // e restritas por propriedade (autor, gestor ou lider) dentro do controller
                         .requestMatchers(HttpMethod.POST, "/api/ideias").hasAnyRole("OPERADOR", "GESTOR", "LIDER")
+                        .requestMatchers(HttpMethod.PUT, "/api/ideias/**").hasAnyRole("OPERADOR", "GESTOR", "LIDER")
+                        .requestMatchers(HttpMethod.DELETE, "/api/ideias/**").hasAnyRole("OPERADOR", "GESTOR", "LIDER")
                         .requestMatchers(HttpMethod.PATCH, "/api/ideias/**").hasAnyRole("GESTOR", "LIDER")
 
                         // Estratégias: liderança gerencia (CRUD), demais perfis apenas consultam

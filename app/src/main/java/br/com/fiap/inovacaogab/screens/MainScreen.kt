@@ -12,36 +12,20 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.FirebaseDatabase
+import br.com.fiap.inovacaogab.data.SessionManager
 
 @Composable
 fun MainScreen(navController: NavController) {
-    var userRole by remember { mutableStateOf("") }
+    val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
     var abaAtual by remember { mutableStateOf("mural") }
 
-    val auth = FirebaseAuth.getInstance()
-    val userId = auth.currentUser?.uid
-
-
-    LaunchedEffect(userId) {
-        if (userId != null) {
-            val database = FirebaseDatabase.getInstance("https://inovacaogab-b43c6-default-rtdb.firebaseio.com/")
-            database.getReference("users").child(userId).child("role").get()
-                .addOnSuccessListener { snapshot ->
-                    val rawRole = snapshot.getValue(String::class.java) ?: "operador"
-
-                    // Converte qualquer formato antigo para o padrão novo e exato da interface
-                    userRole = when {
-                        rawRole.contains("gestor", ignoreCase = true) -> "Gestor(a)"
-                        rawRole.contains("lider", ignoreCase = true) || rawRole.contains("líder", ignoreCase = true) -> "Líder"
-                        else -> "Operador(a)"
-                    }
-                }
-        }
-    }
+    // Perfil do usuário logado (OPERADOR, GESTOR ou LIDER), lido da sessão local
+    // salva no login, sem depender mais do Firebase Realtime Database.
+    val userRole = sessionManager.getRoleUi()
 
     Scaffold(
         bottomBar = {
@@ -82,8 +66,8 @@ fun MainScreen(navController: NavController) {
                     )
                 }
 
-                // ABA VISÃO EXECUTIVA: Visível para Gestor(a) e Líder
-                if (userRole == "Gestor(a)" || userRole == "Líder") {
+                // ABA VISÃO EXECUTIVA: exclusiva do Líder (mesma regra aplicada no backend)
+                if (userRole == "Líder") {
                     NavigationBarItem(
                         icon = { Icon(Icons.Default.BarChart, contentDescription = null) },
                         label = { Text("Visão Executiva") },

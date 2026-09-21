@@ -44,4 +44,25 @@ public class EstrategiaController {
             return ResponseEntity.ok(estrategiaRepository.save(estrategia));
         }).orElseGet(() -> ResponseEntity.notFound().build());
     }
+
+    // Edição completa da diretriz estratégica (apenas LIDER, via SecurityConfig)
+    @PutMapping("/{id}")
+    public ResponseEntity<Estrategia> atualizar(@PathVariable String id, @RequestBody Estrategia dados) {
+        return estrategiaRepository.findById(id).map(estrategia -> {
+            estrategia.setCategoria(dados.getCategoria());
+            estrategia.setCampanha(dados.getCampanha());
+            estrategia.setDescricao(dados.getDescricao());
+            return ResponseEntity.ok(estrategiaRepository.save(estrategia));
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Remoção definitiva de uma diretriz estratégica (apenas LIDER, via SecurityConfig)
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> excluir(@PathVariable String id) {
+        if (!estrategiaRepository.existsById(id)) {
+            return ResponseEntity.notFound().build();
+        }
+        estrategiaRepository.deleteById(id);
+        return ResponseEntity.noContent().build();
+    }
 }

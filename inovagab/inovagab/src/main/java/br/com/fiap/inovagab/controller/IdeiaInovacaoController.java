@@ -2,13 +2,16 @@ package br.com.fiap.inovagab.controller;
 
 import br.com.fiap.inovagab.dto.AnaliseIaDTO;
 import br.com.fiap.inovagab.model.IdeiaInovacao;
+import br.com.fiap.inovagab.model.NivelAcesso;
 import br.com.fiap.inovagab.model.StatusIdeia;
+import br.com.fiap.inovagab.model.Usuario;
 import br.com.fiap.inovagab.repository.EstrategiaRepository;
 import br.com.fiap.inovagab.repository.IdeiaInovacaoRepository;
 import br.com.fiap.inovagab.service.GeminiService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -72,5 +75,42 @@ public class IdeiaInovacaoController {
             ideia.setFeedbackGestor(parecer);
             return ResponseEntity.ok(ideiaRepository.save(ideia));
         }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Edição da própria ideia pelo operador autor, ou por gestor/lider
+    @PutMapping("/{id}")
+    public ResponseEntity<IdeiaInovacao> atualizar(
+            @PathVariable String id,
+            @RequestBody IdeiaInovacao dados,
+            Authentication authentication) {
+        return ideiaRepository.findById(id).map(ideia -> {
+            if (!podeGerenciar(ideia, authentication)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).<IdeiaInovacao>build();
+            }
+            ideia.setTitulo(dados.getTitulo());
+            ideia.setDescricao(dados.getDescricao());
+            ideia.setSetor(dados.getSetor());
+            return ResponseEntity.ok(ideiaRepository.save(ideia));
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Remoção da própria ideia pelo operador autor, ou por gestor/lider
+    @DeleteMapping("/{id}")
+    public ResponseEntity<Void> excluir(@PathVariable String id, Authentication authentication) {
+        return ideiaRepository.findById(id).map(ideia -> {
+            if (!podeGerenciar(ideia, authentication)) {
+                return ResponseEntity.status(HttpStatus.FORBIDDEN).<Void>build();
+            }
+            ideiaRepository.deleteById(id);
+            return ResponseEntity.noContent().<Void>build();
+        }).orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    // Somente o autor da ideia ou perfis GESTOR/LIDER podem editar ou excluir
+    private boolean podeGerenciar(IdeiaInovacao ideia, Authentication authentication) {
+        Usuario usuarioLogado = (Usuario) authentication.getPrincipal();
+        boolean isAutor = usuarioLogado.getId().equals(ideia.getAutorId());
+        boolean isGestorOuLider = usuarioLogado.getNivelAcesso() != NivelAcesso.OPERADOR;
+        return isAutor || isGestorOuLider;
     }
 }

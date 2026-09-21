@@ -1,5 +1,6 @@
 package br.com.fiap.inovacaogab.screens
 
+import android.widget.Toast
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -18,10 +19,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.DashboardResumo
+import br.com.fiap.inovacaogab.data.ProjetoDto
+import java.util.Locale
+
+private fun formatarMoeda(valor: Double): String = String.format(Locale("pt", "BR"), "R$ %,.2f", valor)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -30,6 +38,11 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
     val gabBlueLight = Color(0xFF0066CC)
     val greenSuccess = Color(0xFF10B981)
     val orangeAttention = Color(0xFFF59E0B)
+    val context = LocalContext.current
+
+    var resumo by remember { mutableStateOf<DashboardResumo?>(null) }
+    var projetos by remember { mutableStateOf<List<ProjetoDto>>(emptyList()) }
+    var carregando by remember { mutableStateOf(true) }
 
     var animar by remember { mutableStateOf(false) }
     var showRoiDetails by remember { mutableStateOf(false) }
@@ -37,19 +50,45 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
     var showEsgDetails by remember { mutableStateOf(false) }
     var showDivisoesDetails by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) { animar = true }
+    LaunchedEffect(Unit) {
+        try {
+            val respostaResumo = ApiClient.service.obterResultadosDashboard()
+            if (respostaResumo.isSuccessful) resumo = respostaResumo.body()
 
-    val progRoi by animateFloatAsState(if (animar) 0.82f else 0f, tween(1200))
-    val progCustos by animateFloatAsState(if (animar) 0.74f else 0f, tween(1200))
+            val respostaProjetos = ApiClient.service.listarProjetos()
+            if (respostaProjetos.isSuccessful) projetos = respostaProjetos.body() ?: emptyList()
+
+            animar = true
+        } catch (e: Exception) {
+            Toast.makeText(context, "Falha ao carregar o painel: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            carregando = false
+        }
+    }
+
+    val resumoAtual = resumo ?: DashboardResumo()
+    val progRoi by animateFloatAsState(if (animar) (resumoAtual.roiPercentual / 100.0).toFloat().coerceIn(0f, 1f) else 0f, tween(1200))
+    val progCustos by animateFloatAsState(if (animar && resumoAtual.investimentoTotal > 0) (resumoAtual.reducaoCustosTotal / resumoAtual.investimentoTotal).toFloat().coerceIn(0f, 1f) else 0f, tween(1200))
+
+    val divisoesAgrupadas = remember(projetos) {
+        projetos.groupBy { it.divisao.ifBlank { "Não informado" } }
+            .mapValues { it.value.size }
+    }
 
     Scaffold(
         containerColor = Color(0xFFF8FAFC),
         topBar = { TopAppBar(title = { Text("Painel de Resultados", color = Color.White) }, colors = TopAppBarDefaults.topAppBarColors(containerColor = gabBlueDark)) }
     ) { padding ->
+        if (carregando) {
+            Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = gabBlueLight)
+            }
+            return@Scaffold
+        }
+
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item { Text("Visão Executiva Global", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = gabBlueDark) }
 
-            // Cards de Progressão
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showDivisoesDetails = true },
@@ -62,18 +101,19 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
                             Text("Projetos por Divisão", fontWeight = FontWeight.Bold, color = gabBlueDark, fontSize = 16.sp, modifier = Modifier.weight(1f))
                             Icon(Icons.Default.PieChart, null, tint = gabBlueLight)
                         }
-                        Text("Toque para ver a distribuição detalhada do ecossistema.", color = Color.Gray, fontSize = 12.sp)
+                        Text("${projetos.size} projeto(s) cadastrado(s) no total. Toque para ver a distribuição.", color = Color.Gray, fontSize = 12.sp)
                         Spacer(Modifier.height(16.dp))
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            DivisionIndicator(name = "Passageiros", value = "45%", color = gabBlueLight)
-                            DivisionIndicator(name = "Logística", value = "35%", color = greenSuccess)
-                            DivisionIndicator(name = "Comércio", value = "20%", color = orangeAttention)
+                            val cores = listOf(gabBlueLight, greenSuccess, orangeAttention, gabBlueDark)
+                            divisoesAgrupadas.entries.take(4).forEachIndexed { index, (nome, qtd) ->
+                                val percentual = if (projetos.isNotEmpty()) (qtd * 100 / projetos.size) else 0
+                                DivisionIndicator(name = nome, value = "$percentual%", color = cores[index % cores.size])
+                            }
                         }
                     }
                 }
             }
 
-            // Card de Indicadores ESG
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth().clickable { showEsgDetails = true },
@@ -92,12 +132,12 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
                 }
             }
 
-            item { MetricCard("ROI do Funil Corporativo", "R$ 680.000,00", progRoi, gabBlueLight) { showRoiDetails = true } }
-            item { MetricCard("Redução de Custos", "R$ 245.000,00", progCustos, greenSuccess) { showCostDetails = true } }
+            item { MetricCard("ROI do Funil Corporativo", "${String.format(Locale("pt", "BR"), "%.1f", resumoAtual.roiPercentual)}%", progRoi, gabBlueLight) { showRoiDetails = true } }
+            item { MetricCard("Redução de Custos", formatarMoeda(resumoAtual.reducaoCustosTotal), progCustos, greenSuccess) { showCostDetails = true } }
         }
     }
 
-    // Dialogs de Detalhes
+    // Dialogs de Detalhes (com dados reais vindos do backend)
 
     if (showDivisoesDetails) {
         AlertDialog(
@@ -106,9 +146,13 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
             title = { Text("Detalhamento por Divisão", fontWeight = FontWeight.Bold, color = gabBlueDark) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ItemDetalheDash(Icons.Default.DirectionsBus, "Viação Águia Branca & Squad", "18 Projetos Ativos", gabBlueLight)
-                    ItemDetalheDash(Icons.Default.LocalShipping, "VIX Logística", "14 Projetos Ativos", greenSuccess)
-                    ItemDetalheDash(Icons.Default.Storefront, "Vitória Motors & Concessionárias", "8 Projetos Ativos", orangeAttention)
+                    if (divisoesAgrupadas.isEmpty()) {
+                        Text("Nenhum projeto cadastrado ainda.", color = Color.Gray)
+                    } else {
+                        divisoesAgrupadas.forEach { (nome, qtd) ->
+                            ItemDetalheDash(Icons.Default.Assignment, nome, "$qtd Projeto(s) Ativo(s)", gabBlueLight)
+                        }
+                    }
                 }
             },
             confirmButton = { Button(onClick = { showDivisoesDetails = false }, colors = ButtonDefaults.buttonColors(gabBlueDark)) { Text("Fechar") } }
@@ -122,9 +166,9 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
             title = { Text("Composição do ROI", fontWeight = FontWeight.Bold, color = gabBlueDark) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ItemDetalheDash(Icons.Default.AttachMoney, "Retorno Passageiros", "R$ 300.000,00", gabBlueLight)
-                    ItemDetalheDash(Icons.Default.AttachMoney, "Retorno Logística", "R$ 250.000,00", greenSuccess)
-                    ItemDetalheDash(Icons.Default.AttachMoney, "Retorno Comércio", "R$ 130.000,00", orangeAttention)
+                    ItemDetalheDash(Icons.Default.AttachMoney, "Investimento Total", formatarMoeda(resumoAtual.investimentoTotal), gabBlueLight)
+                    ItemDetalheDash(Icons.Default.AttachMoney, "Retorno Total", formatarMoeda(resumoAtual.retornoTotal), greenSuccess)
+                    ItemDetalheDash(Icons.Default.AttachMoney, "Lucro Líquido", formatarMoeda(resumoAtual.lucroLiquido), orangeAttention)
                 }
             },
             confirmButton = { Button(onClick = { showRoiDetails = false }, colors = ButtonDefaults.buttonColors(gabBlueLight)) { Text("Fechar") } }
@@ -138,9 +182,8 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
             title = { Text("Economia Gerada", fontWeight = FontWeight.Bold, color = gabBlueDark) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ItemDetalheDash(Icons.Default.LocalGasStation, "Combustível (Telemetria)", "R$ 120.000,00", greenSuccess)
-                    ItemDetalheDash(Icons.Default.Build, "Manutenção de Frota", "R$ 85.000,00", gabBlueLight)
-                    ItemDetalheDash(Icons.Default.Bolt, "Eficiência Elétrica", "R$ 40.000,00", orangeAttention)
+                    ItemDetalheDash(Icons.Default.AttachMoney, "Redução de Custos Total", formatarMoeda(resumoAtual.reducaoCustosTotal), greenSuccess)
+                    ItemDetalheDash(Icons.Default.Assignment, "Projetos considerados", "${resumoAtual.totalProjetos}", gabBlueLight)
                 }
             },
             confirmButton = { Button(onClick = { showCostDetails = false }, colors = ButtonDefaults.buttonColors(greenSuccess)) { Text("Fechar") } }
@@ -154,9 +197,8 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
             title = { Text("Impacto Ambiental", fontWeight = FontWeight.Bold, color = Color(0xFF166534)) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    ItemDetalheDash(Icons.Default.Co2, "CO2 Evitado", "120 Toneladas", Color.Gray)
-                    ItemDetalheDash(Icons.Default.WaterDrop, "Água Poupada", "450k Litros", gabBlueLight)
-                    ItemDetalheDash(Icons.Default.Forest, "Reserva Águia Branca", "R$ 300k Aplicados", greenSuccess)
+                    ItemDetalheDash(Icons.Default.Co2, "CO2 Evitado", "${resumoAtual.co2EvitadoToneladas} Toneladas", Color.Gray)
+                    ItemDetalheDash(Icons.Default.WaterDrop, "Água Poupada", "${resumoAtual.aguaPoupadaLitros} Litros", gabBlueLight)
                 }
             },
             confirmButton = { Button(onClick = { showEsgDetails = false }, colors = ButtonDefaults.buttonColors(greenSuccess)) { Text("Fechar") } }
@@ -164,7 +206,6 @@ fun DashboardScreen(modifier: Modifier = Modifier, navController: NavController)
     }
 }
 
-// Componente visual para dialog
 @Composable
 fun ItemDetalheDash(icone: ImageVector, titulo: String, valor: String, corBase: Color) {
     Surface(color = Color(0xFFF8FAFC), shape = RoundedCornerShape(12.dp), modifier = Modifier.fillMaxWidth()) {

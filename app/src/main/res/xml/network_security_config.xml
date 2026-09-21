@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Permite trafego HTTP (sem TLS) apenas para os hosts de desenvolvimento do
+    backend local, usados durante os testes do Challenge FIAP.
+    10.0.2.2 e 10.0.3.2 sao os aliases que o emulador Android usa para
+    acessar o "localhost" da maquina host.
+    Para testar em um dispositivo fisico na mesma rede, adicione o IP da
+    maquina onde o backend esta rodando (ex.: 192.168.0.10) em outro
+    <domain> abaixo.
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">10.0.3.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

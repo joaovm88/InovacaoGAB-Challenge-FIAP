@@ -20,18 +20,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import br.com.fiap.inovacaogab.R
+import br.com.fiap.inovacaogab.data.ApiClient
+import br.com.fiap.inovacaogab.data.IdeiaDto
+import br.com.fiap.inovacaogab.data.SessionManager
 import br.com.fiap.inovacaogab.model.IdeiaInovacao
-import com.google.firebase.Firebase
-import com.google.firebase.auth.FirebaseAuth
-import com.google.firebase.database.DataSnapshot
-import com.google.firebase.database.DatabaseError
-import com.google.firebase.database.ValueEventListener
-import com.google.firebase.database.database
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -41,12 +38,16 @@ fun HomeScreen(
     userRole: String = "Operador(a)"
 ) {
     val context = LocalContext.current
+    val sessionManager = remember { SessionManager(context) }
+    val coroutineScope = rememberCoroutineScope()
+    val autorId = sessionManager.getUserId() ?: ""
+
     var mostrarDialog by remember { mutableStateOf(false) }
     var operacaoAtual by remember { mutableStateOf("Criar") }
     var ideiaSelecionada by remember { mutableStateOf(IdeiaInovacao()) }
 
     var mostrarDialogFeedback by remember { mutableStateOf(false) }
-    var ideiaParaFeedback by remember { mutableStateOf(IdeiaInovacao()) }
+    var ideiaParaFeedback by remember { mutableStateOf<IdeiaDto?>(null) }
     var feedbackMotivo by remember { mutableStateOf("Orçamento focado em outras prioridades no momento.") }
     val motivosFeedback = listOf(
         "Orçamento focado em outras prioridades no momento.",
@@ -56,11 +57,10 @@ fun HomeScreen(
     )
 
     var mostrarDialogAprovacao by remember { mutableStateOf(false) }
-    var ideiaParaAprovar by remember { mutableStateOf(IdeiaInovacao()) }
+    var ideiaParaAprovar by remember { mutableStateOf<IdeiaDto?>(null) }
 
-    val listaIdeias = remember { mutableStateListOf<IdeiaInovacao>() }
-    val database = Firebase.database("https://inovacaogab-b43c6-default-rtdb.firebaseio.com/")
-    val dbRef = database.getReference("ideias")
+    val listaIdeias = remember { mutableStateListOf<IdeiaDto>() }
+    var carregando by remember { mutableStateOf(true) }
 
     val gabBlueDark = Color(0xFF0A2540)
     val gabBlueLight = Color(0xFF0066CC)
@@ -68,24 +68,30 @@ fun HomeScreen(
     val gabSurface = Color(0xFFFFFFFF)
     val greenSuccess = Color(0xFF10B981)
 
-    val currentUser = FirebaseAuth.getInstance().currentUser
-    val emailUsuario = currentUser?.email ?: "usuario@gab.com"
+    val emailUsuario = sessionManager.getEmail() ?: "usuario@gab.com"
     val nomeUsuario = emailUsuario.substringBefore("@").split(".").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
 
-    DisposableEffect(Unit) {
-        val listener = object : ValueEventListener {
-            override fun onDataChange(snapshot: DataSnapshot) {
-                listaIdeias.clear()
-                for (child in snapshot.children) {
-                    child.getValue(IdeiaInovacao::class.java)?.let { listaIdeias.add(it) }
-                }
-                listaIdeias.reverse()
+    // Operador consulta apenas as próprias ideias; Gestor/Líder revisam a fila de pendentes
+    suspend fun carregarIdeias() {
+        carregando = true
+        try {
+            val resposta = if (userRole == "Operador(a)") {
+                ApiClient.service.listarIdeiasPorAutor(autorId)
+            } else {
+                ApiClient.service.listarIdeiasPendentes()
             }
-            override fun onCancelled(error: DatabaseError) {}
+            if (resposta.isSuccessful) {
+                listaIdeias.clear()
+                resposta.body()?.let { listaIdeias.addAll(it.reversed()) }
+            }
+        } catch (e: Exception) {
+            Toast.makeText(context, "Falha ao carregar ideias: ${e.message}", Toast.LENGTH_SHORT).show()
+        } finally {
+            carregando = false
         }
-        dbRef.addValueEventListener(listener)
-        onDispose { dbRef.removeEventListener(listener) }
     }
+
+    LaunchedEffect(userRole) { carregarIdeias() }
 
     Scaffold(
         containerColor = gabBackground,
@@ -97,7 +103,7 @@ fun HomeScreen(
 
                         // BOTÃO SAIR DESCRITIVO
                         TextButton(onClick = {
-                            FirebaseAuth.getInstance().signOut()
+                            sessionManager.limparSessao()
                             navController.navigate("login") { popUpTo("home") { inclusive = true } }
                         }) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -112,23 +118,32 @@ fun HomeScreen(
             )
         },
         floatingActionButton = {
-            ExtendedFloatingActionButton(
-                onClick = {
-                    ideiaSelecionada = IdeiaInovacao(autorId = currentUser?.uid ?: "")
-                    operacaoAtual = "Registrar Ideia"
-                    mostrarDialog = true
-                },
-                shape = RoundedCornerShape(16.dp),
-                containerColor = gabBlueLight,
-                contentColor = Color.White,
-                icon = { Icon(Icons.Default.Add, contentDescription = null) },
-                text = { Text("Nova Ideia", fontWeight = FontWeight.Bold) }
-            )
+            if (userRole == "Operador(a)") {
+                ExtendedFloatingActionButton(
+                    onClick = {
+                        ideiaSelecionada = IdeiaInovacao(autorId = autorId)
+                        operacaoAtual = "Registrar Ideia"
+                        mostrarDialog = true
+                    },
+                    shape = RoundedCornerShape(16.dp),
+                    containerColor = gabBlueLight,
+                    contentColor = Color.White,
+                    icon = { Icon(Icons.Default.Add, contentDescription = null) },
+                    text = { Text("Nova Ideia", fontWeight = FontWeight.Bold) }
+                )
+            }
         }
     ) { padding ->
+        if (carregando) {
+            Box(modifier = Modifier.padding(padding).fillMaxSize(), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = gabBlueLight)
+            }
+            return@Scaffold
+        }
+
         LazyColumn(modifier = Modifier.padding(padding).fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item {
-                val corBadge = when (userRole) {
+                val corBadgePerfil = when (userRole) {
                     "Líder" -> Color(0xFF0F172A)
                     "Gestor(a)" -> Color(0xFF0284C7)
                     else -> Color(0xFF10B981)
@@ -141,34 +156,82 @@ fun HomeScreen(
                     Spacer(modifier = Modifier.width(16.dp))
                     Column {
                         Text("Olá, $nomeUsuario", fontWeight = FontWeight.Bold, fontSize = 18.sp, color = gabBlueDark)
-                        Surface(color = corBadge.copy(alpha = 0.1f), shape = RoundedCornerShape(6.dp)) {
-                            Text(text = userRole, color = corBadge, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
+                        Surface(color = corBadgePerfil.copy(alpha = 0.1f), shape = RoundedCornerShape(6.dp)) {
+                            Text(text = userRole, color = corBadgePerfil, fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp))
                         }
                     }
                 }
             }
 
+            if (listaIdeias.isEmpty()) {
+                item {
+                    Text(
+                        text = if (userRole == "Operador(a)") "Você ainda não registrou nenhuma ideia." else "Não há ideias pendentes de avaliação no momento.",
+                        color = Color.Gray,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                }
+            }
+
             items(listaIdeias) { ideia ->
+                val (corBadge, textoBadge, corTexto) = when (ideia.status) {
+                    "APROVADA" -> Triple(Color(0xFFE0F2FE), "Aprovada", Color(0xFF0369A1))
+                    "ARQUIVADA" -> Triple(Color(0xFFFEE2E2), "Arquivada", Color(0xFFB91C1C))
+                    else -> Triple(Color(0xFFF1F5F9), "Pendente", Color(0xFF475569))
+                }
+
                 Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), colors = CardDefaults.cardColors(containerColor = gabSurface), border = BorderStroke(1.dp, Color(0xFFE2E8F0))) {
                     Column(modifier = Modifier.padding(20.dp)) {
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                            Text(ideia.tituloIdeia, fontWeight = FontWeight.Bold, color = gabBlueDark, modifier = Modifier.weight(1f))
-                            Row {
-                                IconButton(onClick = { ideiaSelecionada = ideia; operacaoAtual = "Editar"; mostrarDialog = true }) { Icon(Icons.Default.Edit, contentDescription = null, tint = gabBlueLight, modifier = Modifier.size(20.dp)) }
-                                IconButton(onClick = { dbRef.child(ideia.id).removeValue() }) { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(20.dp)) }
+                            Text(ideia.titulo, fontWeight = FontWeight.Bold, color = gabBlueDark, modifier = Modifier.weight(1f))
+
+                            if (userRole == "Operador(a)") {
+                                Row {
+                                    IconButton(onClick = {
+                                        ideiaSelecionada = IdeiaInovacao(
+                                            id = ideia.id ?: "",
+                                            autorId = ideia.autorId ?: autorId,
+                                            tituloIdeia = ideia.titulo,
+                                            setor = ideia.setor,
+                                            descricao = ideia.descricao
+                                        )
+                                        operacaoAtual = "Editar"
+                                        mostrarDialog = true
+                                    }) { Icon(Icons.Default.Edit, contentDescription = null, tint = gabBlueLight, modifier = Modifier.size(20.dp)) }
+                                    IconButton(onClick = {
+                                        val id = ideia.id ?: return@IconButton
+                                        coroutineScope.launch {
+                                            try {
+                                                ApiClient.service.excluirIdeia(id)
+                                                carregarIdeias()
+                                            } catch (e: Exception) {
+                                                Toast.makeText(context, "Falha ao excluir: ${e.message}", Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    }) { Icon(Icons.Default.Delete, contentDescription = null, tint = Color.Red, modifier = Modifier.size(20.dp)) }
+                                }
                             }
                         }
                         Text("Setor: ${ideia.setor}", color = gabBlueLight, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(ideia.descricao, fontSize = 14.sp, color = Color.DarkGray)
+
+                        if (ideia.pontuacaoIa != null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Pontuação da IA: ${ideia.pontuacaoIa}/100", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = gabBlueLight)
+                            ideia.justificativaIa?.let {
+                                Text(it, fontSize = 12.sp, color = Color.Gray)
+                            }
+                        }
+
                         Spacer(modifier = Modifier.height(16.dp))
 
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                            Badge(containerColor = if (ideia.foiAprovada) Color(0xFFE0F2FE) else Color(0xFFF1F5F9)) {
-                                Text(if (ideia.foiAprovada) "Aprovada" else "Pendente", color = if (ideia.foiAprovada) Color(0xFF0369A1) else Color(0xFF475569), modifier = Modifier.padding(4.dp))
+                            Badge(containerColor = corBadge) {
+                                Text(textoBadge, color = corTexto, modifier = Modifier.padding(4.dp))
                             }
 
-                            if ((userRole == "Gestor(a)" || userRole == "Líder") && !ideia.foiAprovada) {
+                            if (userRole == "Gestor(a)" || userRole == "Líder") {
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Button(onClick = { ideiaParaAprovar = ideia; mostrarDialogAprovacao = true }, colors = ButtonDefaults.buttonColors(containerColor = greenSuccess)) { Text("Aprovar", fontSize = 12.sp) }
                                     Button(onClick = { ideiaParaFeedback = ideia; mostrarDialogFeedback = true }, colors = ButtonDefaults.buttonColors(containerColor = Color.Gray)) { Text("Avaliar", fontSize = 12.sp) }
@@ -182,25 +245,31 @@ fun HomeScreen(
     }
 
     // DIALOG APROVAÇÃO
-    if (mostrarDialogAprovacao) {
+    if (mostrarDialogAprovacao && ideiaParaAprovar != null) {
         AlertDialog(
             onDismissRequest = { mostrarDialogAprovacao = false },
             title = { Text("Aprovar Sugestão", fontWeight = FontWeight.Bold) },
             text = { Text("O colaborador receberá: \"Parabéns! Sua ideia foi pré-aprovada! Vamos marcar um bate-papo.\"") },
             confirmButton = {
                 Button(onClick = {
-                    dbRef.child(ideiaParaAprovar.id).child("foiAprovada").setValue(true)
-                    // Envia feedback para o autor
-                    val fbRef = Firebase.database.getReference("user_feedbacks").child(ideiaParaAprovar.autorId).push()
-                    fbRef.setValue(FeedbackMensagem(id = fbRef.key!!, tituloIdeia = ideiaParaAprovar.tituloIdeia, mensagem = "Sua ideia foi pré-aprovada! Vamos marcar um bate-papo.", status = "Aprovada"))
-                    mostrarDialogAprovacao = false
+                    val id = ideiaParaAprovar?.id ?: return@Button
+                    coroutineScope.launch {
+                        try {
+                            ApiClient.service.avaliarIdeia(id, "APROVADA", "Sua ideia foi pré-aprovada! Vamos marcar um bate-papo.")
+                            mostrarDialogAprovacao = false
+                            carregarIdeias()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Falha ao aprovar: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }, colors = ButtonDefaults.buttonColors(containerColor = greenSuccess)) { Text("Confirmar") }
-            }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialogAprovacao = false }) { Text("Cancelar") } }
         )
     }
 
-    // DIALOG FEEDBACK (NEGATIVA)
-    if (mostrarDialogFeedback) {
+    // DIALOG FEEDBACK (NEGATIVA/ARQUIVAMENTO)
+    if (mostrarDialogFeedback && ideiaParaFeedback != null) {
         AlertDialog(
             onDismissRequest = { mostrarDialogFeedback = false },
             title = { Text("Feedback de Análise", fontWeight = FontWeight.Bold) },
@@ -217,24 +286,44 @@ fun HomeScreen(
             },
             confirmButton = {
                 Button(onClick = {
-                    val fbRef = Firebase.database.getReference("user_feedbacks").child(ideiaParaFeedback.autorId).push()
-                    fbRef.setValue(FeedbackMensagem(id = fbRef.key!!, tituloIdeia = ideiaParaFeedback.tituloIdeia, mensagem = feedbackMotivo, status = "Arquivada"))
-                    dbRef.child(ideiaParaFeedback.id).removeValue()
-                    mostrarDialogFeedback = false
+                    val id = ideiaParaFeedback?.id ?: return@Button
+                    coroutineScope.launch {
+                        try {
+                            ApiClient.service.avaliarIdeia(id, "ARQUIVADA", feedbackMotivo)
+                            mostrarDialogFeedback = false
+                            carregarIdeias()
+                        } catch (e: Exception) {
+                            Toast.makeText(context, "Falha ao enviar feedback: ${e.message}", Toast.LENGTH_SHORT).show()
+                        }
+                    }
                 }) { Text("Enviar Feedback") }
-            }
+            },
+            dismissButton = { TextButton(onClick = { mostrarDialogFeedback = false }) { Text("Cancelar") } }
         )
     }
 
     if (mostrarDialog) {
         IdeiaDialog(onDismiss = { mostrarDialog = false }, onConfirm = { novaIdeia ->
-            if (operacaoAtual == "Registrar Ideia") {
-                val key = dbRef.push().key
-                if (key != null) dbRef.child(key).setValue(novaIdeia.copy(id = key))
-            } else {
-                dbRef.child(novaIdeia.id).setValue(novaIdeia)
+            coroutineScope.launch {
+                try {
+                    val dto = IdeiaDto(
+                        id = if (novaIdeia.id.isBlank()) null else novaIdeia.id,
+                        titulo = novaIdeia.tituloIdeia,
+                        descricao = novaIdeia.descricao,
+                        setor = novaIdeia.setor,
+                        autorId = novaIdeia.autorId
+                    )
+                    if (operacaoAtual == "Registrar Ideia") {
+                        ApiClient.service.criarIdeia(dto)
+                    } else {
+                        ApiClient.service.atualizarIdeia(novaIdeia.id, dto)
+                    }
+                    mostrarDialog = false
+                    carregarIdeias()
+                } catch (e: Exception) {
+                    Toast.makeText(context, "Falha ao salvar ideia: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
-            mostrarDialog = false
         }, ideia = ideiaSelecionada, operacao = operacaoAtual)
     }
 }
