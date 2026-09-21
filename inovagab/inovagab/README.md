@@ -75,32 +75,38 @@ A autorização é feita via JWT (header `Authorization: Bearer <token>`), com r
 | POST | `/api/auth/registro` | `{ "nome", "email", "senha", "nivelAcesso": "OPERADOR\|GESTOR\|LIDER" }` | `201` Usuário criado / `409` e-mail já existe |
 | POST | `/api/auth/login` | `{ "email", "senha" }` | `200 { "token", "tipo": "Bearer", "nivelAcesso" }` |
 
-### Estratégias (`/api/estrategias`) — `LIDER` gerencia, demais perfis consultam
+### Estratégias (`/api/estrategias`) — `LIDER` gerencia (CRUD), demais perfis consultam
 
 | Método | Rota | Acesso | Payload | Resposta |
 |---|---|---|---|---|
 | POST | `/api/estrategias` | LIDER | `{ "categoria", "campanha", "descricao" }` | `201` Estratégia criada |
 | GET | `/api/estrategias` | Todos autenticados | — | `200` Lista das estratégias ativas |
 | GET | `/api/estrategias/todas` | LIDER | — | `200` Histórico completo |
+| PUT | `/api/estrategias/{id}` | LIDER | `{ "categoria", "campanha", "descricao" }` | `200` Estratégia atualizada / `404` |
 | PATCH | `/api/estrategias/{id}/status?ativa=true\|false` | LIDER | — | `200` Estratégia atualizada / `404` |
+| DELETE | `/api/estrategias/{id}` | LIDER | — | `204` Removida / `404` |
 
-### Ideias de inovação (`/api/ideias`)
+### Ideias de inovação (`/api/ideias`) — CRUD do próprio autor; avaliação por Gestor/Líder
 
 | Método | Rota | Acesso | Payload | Resposta |
 |---|---|---|---|---|
-| POST | `/api/ideias` | OPERADOR, GESTOR, LIDER | `{ "titulo", "descricao", "setor", "estrategiaId" }` | `201` Ideia criada (já com pontuação de IA) |
+| POST | `/api/ideias` | OPERADOR, GESTOR, LIDER | `{ "titulo", "descricao", "setor", "autorId", "estrategiaId" }` | `201` Ideia criada (já com pontuação de IA) |
 | GET | `/api/ideias/autor/{autorId}` | Autenticado | — | `200` Ideias do autor |
 | GET | `/api/ideias/pendentes` | Autenticado | — | `200` Ideias pendentes de avaliação |
+| PUT | `/api/ideias/{id}` | Autor da ideia, GESTOR ou LIDER | `{ "titulo", "descricao", "setor" }` | `200` Ideia atualizada / `403` / `404` |
+| DELETE | `/api/ideias/{id}` | Autor da ideia, GESTOR ou LIDER | — | `204` Removida / `403` / `404` |
 | PATCH | `/api/ideias/{id}/avaliacao?status=APROVADA\|ARQUIVADA&parecer=...` | GESTOR, LIDER | — | `200` Ideia avaliada / `404` |
 
-### Projetos (`/api/projetos`) — `GESTOR` gerencia, `LIDER` consulta
+### Projetos (`/api/projetos`) — `GESTOR` gerencia (CRUD), `LIDER` consulta
 
 | Método | Rota | Acesso | Payload | Resposta |
 |---|---|---|---|---|
 | POST | `/api/projetos` | GESTOR | `{ "nome", "descricao", "etapa", "divisao", "ideiaOrigemId", "estrategiaId", "investimento", ... }` | `201` Projeto criado / `400` investimento inválido |
 | GET | `/api/projetos` | GESTOR, LIDER | — | `200` Lista de projetos |
 | GET | `/api/projetos/{id}` | GESTOR, LIDER | — | `200` Projeto / `404` |
+| PUT | `/api/projetos/{id}` | GESTOR | `{ "nome", "descricao", "divisao", "estrategiaId", "ideiaOrigemId", "investimento", ... }` | `200` Projeto atualizado / `404` |
 | PUT | `/api/projetos/{id}/progresso?fase=...&retornoFinanceiro=...&finalizado=...` | GESTOR | — | `200` Projeto atualizado / `404` |
+| DELETE | `/api/projetos/{id}` | GESTOR | — | `204` Removido / `404` |
 
 ### Dashboard (`/api/dashboard`) — apenas `LIDER`
 
