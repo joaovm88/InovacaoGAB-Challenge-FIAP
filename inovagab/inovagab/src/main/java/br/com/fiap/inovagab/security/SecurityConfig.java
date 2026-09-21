@@ -34,7 +34,15 @@ public class SecurityConfig {
                         // Regras de acesso do InovaGAB
                         .requestMatchers(HttpMethod.POST, "/api/ideias").hasAnyRole("OPERADOR", "GESTOR", "LIDER")
                         .requestMatchers(HttpMethod.PATCH, "/api/ideias/**").hasAnyRole("GESTOR", "LIDER")
-                        .requestMatchers("/api/projetos/**").hasAnyRole("GESTOR", "LIDER")
+
+                        // Estratégias: liderança gerencia (CRUD), demais perfis apenas consultam
+                        .requestMatchers(HttpMethod.GET, "/api/estrategias/**").hasAnyRole("OPERADOR", "GESTOR", "LIDER")
+                        .requestMatchers("/api/estrategias/**").hasRole("LIDER")
+
+                        // Projetos: gestor cadastra e atualiza (CRUD), líder apenas consulta
+                        .requestMatchers(HttpMethod.GET, "/api/projetos/**").hasAnyRole("GESTOR", "LIDER")
+                        .requestMatchers("/api/projetos/**").hasRole("GESTOR")
+
                         .requestMatchers("/api/dashboard/**").hasRole("LIDER")
 
                         // Qualquer outra chamada exige estar autenticado
