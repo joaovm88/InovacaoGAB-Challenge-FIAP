@@ -40,11 +40,23 @@ dentro de `inovagab/inovagab`) e acessível a partir do emulador/dispositivo.
   (ex.: só Líder cria/edita estratégias; só Gestor cria/edita projetos; o
   Dashboard é exclusivo do Líder).
 
-## Limitação conhecida
+## Como rodar e testar
 
-Este ambiente de desenvolvimento (onde as mudanças foram implementadas) não
-possui o Android SDK/emulador instalado, então as telas não puderam ser
-compiladas/testadas ponta a ponta aqui. Antes da entrega final, abra o
-projeto no Android Studio, sincronize o Gradle e rode o app em um emulador
-apontando para o backend local para validar o fluxo completo (login,
-cadastro/avaliação de ideias, mural, projetos e dashboard).
+1. Abra a raiz do repositório no Android Studio e sincronize o Gradle.
+2. Suba o backend localmente (`./mvnw spring-boot:run` dentro de
+   `inovagab/inovagab`), com as variáveis de ambiente `MONGODB_URI` e,
+   opcionalmente, `GEMINI_API_KEY` configuradas.
+3. Rode o app em um emulador Android (Run ▶). Fluxo já validado
+   ponta a ponta: cadastro → login → registro de ideia (com pontuação de
+   IA) → avaliação pelo Gestor → dashboard do Líder.
+
+## Gerando o APK para entrega
+
+**Build → Build Bundle(s) / APK(s) → Build APK(s)**. O arquivo gerado fica em:
+
+```
+app/build/outputs/apk/debug/app-debug.apk
+```
+
+Esse APK de debug é o que deve ser incluído no `.zip` de entrega do app —
+não é necessário gerar um build assinado/release para o Challenge.
